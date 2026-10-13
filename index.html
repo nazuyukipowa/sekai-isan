@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>世界遺産 学習帳</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <a href="#/" class="brand"><span class="brand-mark"></span>世界遺産<small>学習帳</small></a>
+    <nav id="nav">
+      <div class="nav-group">学ぶ</div>
+      <a href="#/" data-route="">ホーム</a>
+      <a href="#/sites" data-route="sites">遺産一覧</a>
+      <a href="#/map" data-route="map">地図</a>
+      <a href="#/theory" data-route="theory">理論</a>
+      <div class="nav-group">解く</div>
+      <a href="#/quiz" data-route="quiz">問題演習</a>
+      <a href="#/flash" data-route="flash">暗記カード</a>
+      <a href="#/review" data-route="review">苦手復習<span class="nav-count" id="nav-wrong"></span></a>
+      <a href="#/exam" data-route="exam">模擬試験</a>
+    </nav>
+    <div class="side-foot">
+      <div class="side-progress"><span id="side-learned">0</span><span class="muted"> / 1273 学習済み</span></div>
+      <div class="meter"><i id="side-meter"></i></div>
+    </div>
+  </aside>
+  <main id="app"></main>
+</div>
+<footer class="foot">出典: UNESCO World Heritage Centre（data.unesco.org）。日本語解説はAI生成のため公式テキストで要確認。</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script src="data/sites.js"></script>
+<script src="data/theory.js"></script>
+<script src="js/store.js"></script>
+<script src="js/quizgen.js"></script>
+<script src="js/theory-view.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
