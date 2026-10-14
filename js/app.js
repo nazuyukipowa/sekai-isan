@@ -50,6 +50,8 @@
     document.getElementById("side-meter").style.width = pct(n, SITES.length) + "%";
     const w = Object.keys(Store.state.wrong).length;
     document.getElementById("nav-wrong").textContent = w || "";
+    const p = ensurePlan(), cur = planStatus(p).cur;
+    document.getElementById("nav-today").textContent = p.ids.length ? (cur === 4 ? "✓" : `${cur + 1}/4`) : "";
   }
 
   // ---------- 範囲フィルタ（一覧・地図・演習・カードで共用） ----------
@@ -96,36 +98,113 @@
     if (b) b.onclick = () => { Object.assign(f, defaultFilter(), { q: f.q }); rerender(); };
   }
 
+  // ---------- 今日のメニュー（学習サイクル） ----------
+  // 新しく学ぶ順: 日本 → アジア・太平洋 → ヨーロッパ・北米 → アラブ諸国 → アフリカ → 中南米。地域内は国ごとにまとめる
+  const STUDY_REGIONS = ["アジア・太平洋", "ヨーロッパ・北米", "アラブ諸国", "アフリカ", "ラテンアメリカ・カリブ"];
+  const studyKey = (s) => (s.states_ja.includes("日本") ? 0 : 1 + STUDY_REGIONS.indexOf(s.region));
+  // 日本は登録年順。どの地域も複数国にまたがる遺産はその地域の最後に回す
+  const STUDY_ORDER = SITES.slice().sort((a, b) => studyKey(a) - studyKey(b)
+    || (a.states_ja.length > 1) - (b.states_ja.length > 1)
+    || (studyKey(a) ? a.states_ja[0].localeCompare(b.states_ja[0], "ja") : 0) || a.year - b.year || a.id - b.id);
+  const dayStr = (d) => d.toLocaleDateString("sv-SE");
+  const today = () => dayStr(new Date());
+  const yesterday = () => dayStr(new Date(Date.now() - 86400000));
+  const STEP_NAMES = ["読む", "覚える", "解く", "復習"];
+  const KANJI = ["壱", "弐", "参", "肆"];
+
+  function ensurePlan() {
+    let p = Store.state.plan;
+    if (!p || p.date !== today()) {
+      const ids = STUDY_ORDER.filter((s) => !Store.isLearned(s.id)).slice(0, Store.state.settings.daily).map((s) => s.id);
+      p = { date: today(), ids, flash: false, quiz: false, review: false, quizScore: null };
+      Store.setPlan(p);
+    }
+    return p;
+  }
+  const planSites = (p) => p.ids.map((id) => byId.get(id)).filter(Boolean);
+  // 各ステップの完了状態と、いま取り組むべきステップ番号（0〜3、全部済みなら4）
+  function planStatus(p) {
+    const read = planSites(p).filter((s) => Store.isLearned(s.id)).length;
+    const wrongN = Object.keys(Store.state.wrong).length;
+    const done = [read === p.ids.length, p.flash, p.quiz, p.review || (p.quiz && wrongN === 0)];
+    const cur = done.indexOf(false);
+    return { read, done, cur: cur < 0 ? 4 : cur, wrongN };
+  }
+  const STEP_LINK = ["", "#/flash/today", "#/quiz/today", "#/review/today"];
+  function stepLink(p, i) {
+    if (i === 0) { const s = planSites(p).find((x) => !Store.isLearned(x.id)) || planSites(p)[0]; return s ? `#/site/${s.id}` : "#/sites"; }
+    return STEP_LINK[i] || "#/exam";
+  }
+  function checkDayDone() {
+    const p = Store.state.plan;
+    if (p && p.date === today() && planStatus(p).cur === 4) Store.markDayDone(today(), yesterday());
+  }
+  // 各画面の最後に出す「次はこれ」
+  const nextBox = (label, href, sub) => `<a class="next-box" href="${href}"><span><small>次はこれ</small><b>${label}</b>${sub ? `<span>${sub}</span>` : ""}</span><span class="arr">→</span></a>`;
+  function nextAfterToday() {
+    const p = ensurePlan(), st = planStatus(p);
+    checkDayDone();
+    if (st.cur === 4) return nextBox("今日のメニュー完了", "#/", "ホームで振り返る");
+    return nextBox(`${KANJI[st.cur]}　${STEP_NAMES[st.cur]}`, stepLink(p, st.cur), "今日のメニューの続き");
+  }
+
   // ---------- ホーム ----------
   function viewHome() {
     const st = Store.state;
+    const p = ensurePlan();
+    const ps = planStatus(p);
+    checkDayDone();
+    const sites = planSites(p);
     const learned = Object.keys(st.learned).length;
-    const jp = SITES.filter((s) => s.states_ja.includes("日本"));
-    const jpLearned = jp.filter((s) => Store.isLearned(s.id)).length;
-    const wrongN = Object.keys(st.wrong).length;
     const byRegion = REGIONS.map((r) => {
       const all = SITES.filter((s) => s.region === r);
       return { r, n: all.length, l: all.filter((s) => Store.isLearned(s.id)).length };
     });
-    const next = pickUnlearned();
-    h(`${head("Dashboard", "今日も一歩ずつ。", `全${SITES.length}件の世界遺産と理論を、読んで・解いて・覚える。`)}
+    const jp = SITES.filter((s) => s.states_ja.includes("日本"));
+    const lastExam = st.exams[0];
+    const examDue = !lastExam || Date.now() - lastExam.date > 7 * 86400000;
+    const streak = st.streak.last === today() || st.streak.last === yesterday() ? st.streak.count : 0;
+    const desc = [
+      `新しい遺産 ${sites.length}件 ・ ${ps.read}/${sites.length}`,
+      `今日の${sites.length}件をカードで確認`,
+      p.quizScore ? `${p.quizScore.ok}/${p.quizScore.total} 正解` : `今日の${sites.length}件から約${sites.length * 2}問`,
+      ps.wrongN ? `苦手 ${Math.min(ps.wrongN, 10)}問` : "苦手なし",
+    ];
+    const card = (i) => {
+      const state = ps.done[i] ? "done" : i === ps.cur ? "cur" : "";
+      return `<a class="step ${state}" href="${stepLink(p, i)}"><span class="n">${KANJI[i]}${ps.done[i] ? " ・ 完了" : i === ps.cur ? " ・ いまここ" : ""}</span>
+        <b>${STEP_NAMES[i]}</b><span class="d">${desc[i]}</span>${i === 0 ? `<div class="meter"><i style="width:${pct(ps.read, sites.length)}%"></i></div>` : ""}</a>`;
+    };
+    h(`<div class="page-head"><div class="eyebrow">${new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" })}${streak ? ` ・ 連続 ${streak}日` : ""}</div>
+        <h1>${ps.cur === 4 ? "今日のメニュー、完了。" : "今日の学習"}</h1>
+        <p class="lede">${ps.cur === 4 ? "おつかれさま。余力があれば追加で進めるか、模擬試験で腕試し。" : "上から順に 読む → 覚える → 解く → 復習。毎日これを回せば、日本 → アジア → ヨーロッパ…と全件を一周できる。"}</p></div>
+      ${sites.length ? `<div class="steps">${[0, 1, 2, 3].map((i) => (i ? '<span class="step-arr">→</span>' : "") + card(i)).join("")}</div>
+      <div class="today-row">
+        ${ps.cur < 4 ? `<a class="btn" href="${stepLink(p, ps.cur)}">${ps.cur === 0 && ps.read === 0 ? "今日の学習を始める" : `${KANJI[ps.cur]}「${STEP_NAMES[ps.cur]}」から続ける`} →</a>` : `<button class="btn" id="more5">さらに${st.settings.daily}件追加する</button><a class="btn ghost" href="#/exam">模擬試験で腕試し</a>`}
+        <span class="spacer"></span>
+        <button class="clear ruby-inline" id="ruby-home">ふりがな ${Store.state.settings.furigana === false ? "OFF" : "ON"}</button>
+        <label class="small muted">1日の新規 <select id="daily">${[3, 5, 10].map((n) => `<option ${n === st.settings.daily ? "selected" : ""}>${n}</option>`).join("")}</select> 件</label>
+      </div>
+      <h2>今日の遺産</h2>
+      <ol class="today-list">${sites.map((s, i) => `<li><a href="#/site/${s.id}"><span class="mono muted">${String(i + 1).padStart(2, "0")}</span>
+        <span class="dot ${s.category}"></span><b>${esc(s.name_ja)}</b><span class="muted small">${esc(s.states_ja.join("・"))}</span><span class="spacer"></span>${Store.isLearned(s.id) ? '<span class="tag done">読了</span>' : '<span class="small muted">未読</span>'}</a></li>`).join("")}</ol>`
+      : `<div class="empty">全${SITES.length}件を学習済み。模擬試験と苦手復習で仕上げよう。</div>`}
+      ${examDue ? `<div class="notice"><b>週に一度は腕試し</b><span>${lastExam ? "前回の模擬試験から1週間以上。" : "まだ模擬試験を受けていない。"}ミニ（20問・15分）でも実力が分かる。</span><a class="btn ghost small" href="#/exam">模擬試験へ</a></div>` : ""}
+      <h2>全体の進み具合</h2>
       <div class="stats">
         <div><div class="lbl">学習済みの遺産</div><div class="num">${learned}<small> / ${SITES.length}</small></div></div>
-        <div><div class="lbl">日本の遺産</div><div class="num">${jpLearned}<small> / ${jp.length}</small></div></div>
+        <div><div class="lbl">日本の遺産</div><div class="num">${jp.filter((s) => Store.isLearned(s.id)).length}<small> / ${jp.length}</small></div></div>
         <div><div class="lbl">累計正答率</div><div class="num">${pct(st.correct, st.answered)}<small>%</small></div><div class="small muted">${st.correct} / ${st.answered} 問</div></div>
-        <div><div class="lbl">苦手問題</div><div class="num">${wrongN}<small> 問</small></div></div>
+        <div><div class="lbl">苦手問題</div><div class="num">${ps.wrongN}<small> 問</small></div></div>
       </div>
-      <h2>はじめる</h2>
+      <div class="region-bars" style="margin-top:24px">${byRegion.map((x) => `<div class="rb"><span>${x.r}</span><div class="meter"><i style="width:${pct(x.l, x.n)}%"></i></div><span class="mono">${x.l} / ${x.n}</span></div>`).join("")}</div>
+      <h2>自由に学ぶ</h2>
       <div class="actions">
-        <a href="#/site/${next.id}"><b>次の遺産を学ぶ</b><span>${esc(next.name_ja)}</span></a>
-        <a href="#/quiz"><b>問題演習</b><span>範囲と種類を選んで解く</span></a>
-        <a href="#/flash"><b>暗記カード</b><span>名称・キーワード・地図から</span></a>
         <a href="#/theory"><b>理論を読む</b><span>${(THEORY.sections || []).length}章と登録基準・用語集</span></a>
-        <a href="#/exam"><b>模擬試験</b><span>時間制限つきで実力確認</span></a>
-        ${wrongN ? `<a href="#/review"><b>苦手を復習</b><span>${wrongN}問が待っている</span></a>` : ""}
+        <a href="#/map"><b>地図で探す</b><span>地域から遺産を見つける</span></a>
+        <a href="#/quiz"><b>範囲を決めて演習</b><span>地域・基準・種類を指定</span></a>
+        <a href="#/flash"><b>暗記カード</b><span>名称・キーワード・地図から</span></a>
       </div>
-      <h2>地域別の進み具合</h2>
-      <div class="region-bars">${byRegion.map((x) => `<div class="rb"><span>${x.r}</span><div class="meter"><i style="width:${pct(x.l, x.n)}%"></i></div><span class="mono">${x.l} / ${x.n}</span></div>`).join("")}</div>
       ${st.exams.length ? `<h2>模擬試験の記録</h2><div class="table-wrap"><table class="sites"><thead><tr><th>日時</th><th>級</th><th>得点</th><th>時間</th></tr></thead><tbody>
         ${st.exams.slice(0, 10).map((e) => `<tr style="cursor:default"><td class="mono">${new Date(e.date).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}</td><td>${esc(e.level)}</td><td class="mono"><b>${pct(e.correct, e.total)}%</b> <span class="muted">${e.correct}/${e.total}</span></td><td class="mono muted">${fmtSec(e.sec)}</td></tr>`).join("")}</tbody></table></div>` : ""}
       <h2>データ</h2>
@@ -135,10 +214,22 @@
       if (e.target.dataset.armed) { Store.reset(); refreshSide(); viewHome(); }
       else { e.target.dataset.armed = 1; e.target.textContent = "本当にリセットする（もう一度クリック）"; }
     };
+    if ($("#daily")) $("#daily").onchange = (e) => {
+      Store.setDaily(+e.target.value);
+      // まだ手を付けていなければ今日の分も作り直す
+      if (ps.read === 0 && !p.flash && !p.quiz) Store.setPlan(null);
+      viewHome(); refreshSide();
+    };
+    if ($("#ruby-home")) $("#ruby-home").onclick = () => { document.getElementById("ruby-toggle").click(); viewHome(); };
+    if ($("#more5")) $("#more5").onclick = () => {
+      const add = STUDY_ORDER.filter((s) => !Store.isLearned(s.id) && !p.ids.includes(s.id)).slice(0, st.settings.daily).map((s) => s.id);
+      Store.setPlan({ ...p, ids: add, flash: false, quiz: false, review: false, quizScore: null });
+      viewHome(); refreshSide();
+    };
   }
-  function pickUnlearned() {
-    const rest = SITES.filter((s) => !Store.isLearned(s.id));
-    return QuizGen.pick(rest.length ? rest : SITES);
+  function nextUnlearned(after) {
+    const i = after ? STUDY_ORDER.findIndex((s) => s.id === after) : -1;
+    return STUDY_ORDER.slice(i + 1).find((s) => !Store.isLearned(s.id)) || STUDY_ORDER.find((s) => !Store.isLearned(s.id));
   }
 
   // ---------- 一覧 ----------
@@ -175,6 +266,20 @@
   }
 
   // ---------- 詳細 ----------
+  // 遺産ページ下部: 今日のメニューの遺産なら固定バー、それ以外は「次はこれ」
+  function todayNav(s) {
+    const p = ensurePlan();
+    if (p.ids.includes(s.id)) {
+      const rest = planSites(p).filter((x) => x.id !== s.id && !Store.isLearned(x.id));
+      const read = planSites(p).filter((x) => x.id === s.id || Store.isLearned(x.id)).length;
+      const [href, label] = rest.length ? [`#/site/${rest[0].id}`, "次の遺産へ"] : ["#/flash/today", "弐「覚える」へ"];
+      return `<div class="today-bar"><span><small>今日のメニュー ・ 壱　読む</small><b class="mono">${read} / ${p.ids.length}</b></span>
+        <button class="btn" id="learn-next" data-href="${href}">${Store.isLearned(s.id) ? label : `学習済みにして${label}`} →</button></div>`;
+    }
+    const nx = nextUnlearned(s.id);
+    return `<div class="next-row">${nextBox("この遺産の問題を解く", `#/quiz/site/${s.id}`, "読んだらすぐ確認")}${nx ? nextBox("次の未学習の遺産", `#/site/${nx.id}`, esc(nx.name_ja)) : ""}</div>`;
+  }
+
   function viewSite(id) {
     const s = byId.get(+id);
     if (!s) return h('<div class="empty">見つかりません</div>');
@@ -202,8 +307,14 @@
         const t = crit.find((x) => x.no === c); return `<div><b>${c}</b><span>${t ? esc(t.short) : ""}</span></div>`; }).join("")}</div></section>` : ""}
       ${s.keywords.length ? `<section class="block"><div class="lbl">キーワード</div><div class="kw">${s.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</div></section>` : ""}
       ${s.points.length ? `<section class="block"><div class="lbl">頻出ポイント</div><ol class="points">${s.points.map((p) => `<li><span>${esc(p)}</span></li>`).join("")}</ol></section>` : ""}
-      ${s.lat != null ? `<section class="block"><div class="lbl">位置</div><div class="map" id="map"></div></section>` : ""}`);
+      ${s.lat != null ? `<section class="block"><div class="lbl">位置</div><div class="map" id="map"></div></section>` : ""}
+      ${todayNav(s)}`);
     $("#learn").onclick = () => { Store.toggleLearned(s.id); refreshSide(); viewSite(id); };
+    if ($("#learn-next")) $("#learn-next").onclick = (e) => {
+      if (!Store.isLearned(s.id)) Store.toggleLearned(s.id);
+      refreshSide();
+      location.hash = e.currentTarget.dataset.href;
+    };
     if (s.lat != null) {
       const m = makeMap($("#map"), s.lat, s.lon, 6);
       if (m) { pin(m, s.lat, s.lon, s); cleanup = () => m.remove(); }
@@ -271,15 +382,20 @@
   }
 
   // ---------- 1問ずつ解く（演習・復習で共用） ----------
-  function runQuiz(questions, title, onAgain) {
+  // opts.onDone(ok, total): 解き終えたとき / opts.next(wrongs): 結果画面の「次はこれ」
+  function runQuiz(questions, title, onAgain, opts = {}) {
     let i = 0, ok = 0, qmap = null;
     const wrongs = [];
     const finish = () => {
       if (qmap) { qmap.remove(); qmap = null; }
+      if (opts.onDone && questions.length) opts.onDone(ok, questions.length);
       refreshSide();
+      const next = opts.next ? opts.next(wrongs)
+        : wrongs.length ? nextBox("間違えた問題を復習", "#/review", `${wrongs.length}問が苦手リストに入った`) : nextBox("今日の学習に戻る", "#/", "");
       h(`<div class="quiz">${head("Result", esc(title))}
         <div class="result-big">${pct(ok, questions.length)}<small>%</small></div><p class="muted">${ok} / ${questions.length} 問正解</p>
-        <div class="row" style="margin:24px 0 8px"><button class="btn" id="again">もう一度</button><a class="btn ghost" href="#/review">苦手復習へ</a></div>
+        ${next}
+        <div class="row" style="margin:16px 0 8px"><button class="btn ghost" id="again">もう一度</button></div>
         ${wrongs.length ? `<h2>間違えた問題</h2>${wrongs.map((q) => `<div class="review-item"><div class="q">${esc(q.q)}</div>
           正解 <b>${esc(q.choices[q.answer])}</b><div class="muted">${esc(q.exp)}</div>${q.siteId ? `<a class="link small" href="#/site/${q.siteId}">遺産ページへ</a>` : ""}</div>`).join("")}` : ""}</div>`);
       $("#again").onclick = onAgain;
@@ -321,6 +437,15 @@
   const quizFilter = defaultFilter();
   const quizOpts = { sources: new Set(["auto", "hand"]), autoTypes: Object.keys(AUTO_TYPES), count: 20 };
   function viewQuiz(arg, arg2) {
+    if (arg === "today") {
+      const p = ensurePlan(), sites = planSites(p);
+      let qs = generate({ sites, sources: new Set(["hand"]), count: sites.length * 2 });
+      if (qs.length < sites.length * 2) qs = qs.concat(generate({ sites, sources: new Set(["auto"]), count: sites.length * 2 - qs.length }));
+      return runQuiz(shuffle(qs), "参　今日の確認問題", () => viewQuiz("today"), {
+        onDone: (ok, total) => { p.quiz = true; p.quizScore = { ok, total }; Store.save(); },
+        next: () => nextAfterToday(),
+      });
+    }
     if (arg === "site") {
       const s = byId.get(+arg2);
       const qs = generate({ sites: [s], sources: new Set(["hand"]), count: 10 })
@@ -362,8 +487,15 @@
   }
 
   // ---------- 苦手復習 ----------
-  function viewReview() {
+  function viewReview(arg) {
     const items = Object.values(Store.state.wrong).sort((a, b) => b.miss - a.miss);
+    if (arg === "today") {
+      const p = ensurePlan();
+      const done = () => { p.review = true; Store.save(); };
+      if (!items.length) { done(); location.hash = "#/"; return; }
+      return runQuiz(shuffle(items.slice(0, 20)).slice(0, 10).map((w) => w.q), "肆　苦手の復習", () => viewReview("today"),
+        { onDone: done, next: () => nextAfterToday() });
+    }
     h(`${head("Review", "苦手復習", "間違えた問題がここに溜まる。2回続けて正解すると卒業。")}
       <div class="row" style="margin-bottom:24px"><button class="btn" id="go" ${items.length ? "" : "disabled"}>苦手問題を解く（最大30問）</button><span class="small muted">${items.length}問</span></div>
       ${items.length ? items.slice(0, 100).map((w) => `<div class="review-item"><div class="row"><span class="tag danger">×${w.miss}</span>${w.streak ? `<span class="tag done">連続正解 ${w.streak}</span>` : ""}</div>
@@ -374,7 +506,11 @@
   // ---------- 暗記カード ----------
   const flashFilter = defaultFilter();
   const flashOpts = { mode: "name", onlyWeak: true };
-  function viewFlash() {
+  function viewFlash(arg) {
+    if (arg === "today") {
+      const p = ensurePlan();
+      return runFlash(shuffle(planSites(p)), { mode: "name", title: "弐　今日のカード", onDone: () => { p.flash = true; Store.save(); } });
+    }
     h(`${head("Flashcards", "暗記カード", "表を見て思い出し、めくって確認。覚えた度合いを3段階で記録する。")}
       <div class="setup">
         <section><div class="lbl">範囲</div><div>${filterForm(flashFilter, false)}</div></section>
@@ -393,23 +529,31 @@
     $("#weak").onchange = (e) => { flashOpts.onlyWeak = e.target.checked; upd(); };
     $("#start").onclick = () => { const d = shuffle(deck()); if (d.length) runFlash(d); };
   }
-  function runFlash(cards) {
+  // opts: {mode, title, onDone} 今日のメニューから呼ぶときに表面と完了処理を指定
+  function runFlash(cards, opts = {}) {
+    const mode = opts.mode || mode;
+    const total = cards.length;
     let i = 0, flipped = false, fmap = null;
     const show = () => {
       if (fmap) { fmap.remove(); fmap = null; }
-      if (i >= cards.length) return h(`<div class="empty"><div class="result-big">${cards.length}<small> 枚</small></div><p>おつかれさま。</p><a class="btn" href="#/flash">戻る</a></div>`);
+      if (i >= cards.length) {
+        if (opts.onDone) opts.onDone();
+        const next = opts.onDone ? nextAfterToday() : nextBox("覚えた遺産の問題を解く", "#/quiz", "範囲を決めて演習");
+        return h(`<div class="quiz">${head("Done", esc(opts.title || "暗記カード"))}<div class="result-big">${total}<small> 枚</small></div><p class="muted">おつかれさま。</p>${next}
+          <div class="row" style="margin-top:16px"><a class="btn ghost" href="#/flash">カードの設定に戻る</a></div></div>`);
+      }
       const s = cards[i];
-      const front = flashOpts.mode === "keyword" ? `<div class="front">${shuffle(s.keywords).slice(0, 3).map(esc).join("<br>")}</div><div class="hint">この遺産は？</div>`
-        : flashOpts.mode === "map" ? `<div class="qmap" id="fmap"></div><div class="hint">この位置にある遺産は？</div>`
+      const front = mode === "keyword" ? `<div class="front">${shuffle(s.keywords).slice(0, 3).map(esc).join("<br>")}</div><div class="hint">この遺産は？</div>`
+        : mode === "map" ? `<div class="qmap" id="fmap"></div><div class="hint">この位置にある遺産は？</div>`
         : `<div class="front">${esc(s.name_ja)}</div><div class="hint">${esc(s.name_en)}</div>`;
       const back = `<div class="eyebrow">No. ${s.id}</div><h3 style="font-size:22px">${esc(s.name_ja)}</h3>
         <div class="row small" style="margin:6px 0 14px">${cat(s)}<span>${esc(s.states_ja.join("・"))}</span><span class="mono">${s.year}</span>${critTags(s)}${s.danger ? '<span class="tag danger">危機</span>' : ""}</div>
         <p style="margin:0 0 14px;font-size:14px;color:var(--ink-2)">${esc(s.summary)}</p><div class="kw">${s.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</div>`;
-      h(`<div class="flash-wrap"><div class="quiz-top"><span>暗記カード</span><div class="meter"><i style="width:${pct(i, cards.length)}%"></i></div><span class="mono">${i + 1} / ${cards.length}</span></div>
+      h(`<div class="flash-wrap"><div class="quiz-top"><span>${esc(opts.title || "暗記カード")}</span><div class="meter"><i style="width:${pct(i, cards.length)}%"></i></div><span class="mono">${i + 1} / ${cards.length}</span></div>
         <div class="flash ${flipped ? "back" : ""}" id="card">${flipped ? back : front + '<div class="hint"><span class="kbd">Space</span> またはクリックでめくる</div>'}</div>
         ${flipped ? `<div class="rate"><button class="btn ghost" data-lv="0">まだ <span class="kbd">1</span></button><button class="btn ghost" data-lv="1">あいまい <span class="kbd">2</span></button><button class="btn" data-lv="2">覚えた <span class="kbd">3</span></button></div>` : ""}
         <div class="row" style="justify-content:center;margin-top:16px"><a class="link small" href="#/site/${s.id}" target="_blank">詳細ページ ↗</a></div></div>`);
-      if (!flipped && flashOpts.mode === "map") { fmap = makeMap($("#fmap"), s.lat, s.lon, 4); if (fmap) pin(fmap, s.lat, s.lon, null); }
+      if (!flipped && mode === "map") { fmap = makeMap($("#fmap"), s.lat, s.lon, 4); if (fmap) pin(fmap, s.lat, s.lon, null); }
       $("#card").onclick = () => { if (!flipped) { flipped = true; show(); } };
       $$("[data-lv]").forEach((b) => b.onclick = () => rate(+b.dataset.lv));
     };
@@ -502,7 +646,8 @@
       h(`<div class="quiz">${head("Result", `模擬試験 ${level}`)}
         <div class="result-big">${p}<small>%</small></div>
         <p class="muted">${ok} / ${qs.length} 問正解 ・ ${fmtSec(sec)} ・ ${p >= 60 ? "合格ライン（目安60%）を突破" : `合格ライン（目安60%）まであと ${Math.ceil(qs.length * 0.6) - ok}問`}</p>
-        <div class="row" style="margin:20px 0"><a class="btn" href="#/exam">模擬試験トップへ</a><a class="btn ghost" href="#/review">苦手復習へ</a></div>
+        ${qs.length - ok ? nextBox("間違えた問題を復習", "#/review", `${qs.length - ok}問が苦手リストに入った`) : nextBox("今日の学習に戻る", "#/", "")}
+        <div class="row" style="margin:16px 0"><a class="btn ghost" href="#/exam">模擬試験トップへ</a></div>
         <h2>全問の解説</h2>${qs.map((q, k) => `<div class="review-item"><div class="q"><span class="mark ${ans[k] === q.answer ? "o" : "x"}">${ans[k] === q.answer ? "○" : "×"}</span>問${k + 1}. ${esc(q.q)}</div>
           <span class="muted">あなた</span> ${ans[k] == null ? "未回答" : esc(q.choices[ans[k]])}　<span class="muted">正解</span> <b>${esc(q.choices[q.answer])}</b>
           <div class="muted">${esc(q.exp)}</div>${q.siteId ? `<a class="link small" href="#/site/${q.siteId}">遺産ページへ</a>` : ""}</div>`).join("")}</div>`);
@@ -529,6 +674,15 @@
     else (views[name] || viewHome)(a, b);
     refreshSide();
   }
+  // ふりがなの表示切替（設定は保存して次回も引き継ぐ）
+  function applyFurigana() {
+    const on = Store.state.settings.furigana !== false;
+    document.body.classList.toggle("no-ruby", !on);
+    document.getElementById("ruby-state").textContent = on ? "ON" : "OFF";
+  }
+  document.getElementById("ruby-toggle").onclick = () => { Store.setFurigana(Store.state.settings.furigana === false); applyFurigana(); };
+  applyFurigana();
+
   window.addEventListener("hashchange", route);
   route();
 })();

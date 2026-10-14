@@ -8,9 +8,12 @@
     answered: 0,
     correct: 0,
     exams: [],        // {date, level, total, correct, sec}
+    plan: null,       // 今日のメニュー {date, ids, flash, quiz, review, quizScore}
+    settings: { daily: 5, furigana: true },
+    streak: { last: null, count: 0 },
   });
   let state;
-  try { state = Object.assign(empty(), JSON.parse(localStorage.getItem(KEY) || "{}")); }
+  try { const base = empty(); state = Object.assign(base, JSON.parse(localStorage.getItem(KEY) || "{}")); state.settings = Object.assign(empty().settings, state.settings); }
   catch (e) { state = empty(); }
 
   function save() {
@@ -39,6 +42,17 @@
     },
     setFlash(id, lv) { state.flash[id] = lv; save(); },
     addExam(r) { state.exams.unshift(r); state.exams = state.exams.slice(0, 30); save(); },
+    setPlan(p) { state.plan = p; save(); },
+    setDaily(n) { state.settings.daily = n; save(); },
+    setFurigana(on) { state.settings.furigana = on; save(); },
+    // 今日のメニューを全部終えた日に連続日数を更新
+    markDayDone(today, yesterday) {
+      if (state.streak.last === today) return;
+      state.streak.count = state.streak.last === yesterday ? state.streak.count + 1 : 1;
+      state.streak.last = today;
+      save();
+    },
+    save,
     reset() { state = empty(); save(); },
   };
 })();

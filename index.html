@@ -6,7 +6,7 @@
 <title>世界遺産 学習帳</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
 <link rel="stylesheet" href="css/style.css">
@@ -14,22 +14,26 @@
 <body>
 <div class="shell">
   <aside class="side">
-    <a href="#/" class="brand"><span class="brand-mark"></span>世界遺産<small>学習帳</small></a>
+    <a href="#/" class="brand"><span class="brand-mark"></span>世界遺産学習帳<small>World Heritage</small></a>
     <nav id="nav">
-      <div class="nav-group">学ぶ</div>
-      <a href="#/" data-route="">ホーム</a>
+      <a href="#/" data-route="" class="nav-today">今日の学習<span class="nav-count" id="nav-today"></span></a>
+      <div class="nav-group"><span class="step-no">壱</span>読む</div>
       <a href="#/sites" data-route="sites">遺産一覧</a>
       <a href="#/map" data-route="map">地図</a>
       <a href="#/theory" data-route="theory">理論</a>
-      <div class="nav-group">解く</div>
-      <a href="#/quiz" data-route="quiz">問題演習</a>
+      <div class="nav-group"><span class="step-no">弐</span>覚える</div>
       <a href="#/flash" data-route="flash">暗記カード</a>
+      <div class="nav-group"><span class="step-no">参</span>解く</div>
+      <a href="#/quiz" data-route="quiz">問題演習</a>
+      <div class="nav-group"><span class="step-no">肆</span>復習</div>
       <a href="#/review" data-route="review">苦手復習<span class="nav-count" id="nav-wrong"></span></a>
+      <div class="nav-group"><span class="step-no">伍</span>腕試し</div>
       <a href="#/exam" data-route="exam">模擬試験</a>
     </nav>
     <div class="side-foot">
       <div class="side-progress"><span id="side-learned">0</span><span class="muted"> / 1273 学習済み</span></div>
       <div class="meter"><i id="side-meter"></i></div>
+      <button class="ruby-toggle" id="ruby-toggle" type="button"><ruby>振<rt>ふ</rt></ruby>り<ruby>仮名<rt>がな</rt></ruby><span id="ruby-state"></span></button>
     </div>
   </aside>
   <main id="app"></main>
@@ -40,9 +44,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 <script src="data/sites.js"></script>
 <script src="data/theory.js"></script>
+<script src="data/furigana.js"></script>
 <script src="js/store.js"></script>
 <script src="js/quizgen.js"></script>
 <script src="js/theory-view.js"></script>
 <script src="js/app.js"></script>
+<script src="js/ruby.js"></script>
 </body>
 </html>
