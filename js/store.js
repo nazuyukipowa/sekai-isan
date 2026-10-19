@@ -12,12 +12,25 @@
     settings: { daily: 5, furigana: true },
     streak: { last: null, count: 0 },
   });
+  const normalize = (s) => {
+    const n = Object.assign(empty(), s || {});
+    n.settings = Object.assign(empty().settings, n.settings);
+    n.streak = Object.assign(empty().streak, n.streak);
+    return n;
+  };
   let state;
-  try { const base = empty(); state = Object.assign(base, JSON.parse(localStorage.getItem(KEY) || "{}")); state.settings = Object.assign(empty().settings, state.settings); }
+  try { state = normalize(JSON.parse(localStorage.getItem(KEY) || "{}")); }
   catch (e) { state = empty(); }
 
-  function save() {
+  // listeners: 保存のたびに呼ぶ（クラウド同期が登録する）
+  const listeners = [];
+  function persist() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 保存不可でも続行 */ }
+  }
+  function save() {
+    state.updatedAt = Date.now();
+    persist();
+    listeners.forEach((fn) => fn(state));
   }
 
   window.Store = {
@@ -54,5 +67,8 @@
     },
     save,
     reset() { state = empty(); save(); },
+    onSave(fn) { listeners.push(fn); },
+    // クラウドから受け取った記録で置き換える（同期ループを避けるため listeners は呼ばない）
+    replace(s) { state = normalize(s); persist(); },
   };
 })();

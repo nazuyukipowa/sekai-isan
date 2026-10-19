@@ -657,6 +657,38 @@
     show();
   }
 
+  // ---------- アカウント（クラウド同期） ----------
+  function viewAccount() {
+    const S = Sync.state;
+    const fmt = (d) => (d ? d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "—");
+    let body;
+    if (!S.enabled) {
+      body = '<div class="notice"><b>同期は未設定</b><span>Firebase の設定が入るとログインできるようになる。今は記録をこの端末の中だけに保存している。</span></div>';
+    } else if (!S.ready && S.status !== "error") {
+      body = '<p class="muted">読み込み中…</p>';
+    } else if (S.user) {
+      body = `<div class="account-card"><div><small>ログイン中</small><b>${esc(S.user.displayName || S.user.email)}</b><span class="small muted">${esc(S.user.email || "")}</span></div>
+          <div><small>状態</small><span class="sync-state ${S.status}">${S.status === "syncing" ? "同期中…" : S.status === "error" ? "エラー" : "同期済み"}</span></div>
+          <div><small>最終同期</small><span class="mono">${fmt(S.lastSync)}</span></div></div>
+        ${S.status === "error" ? `<p class="small" style="color:var(--ng)">${esc(S.message)}</p>` : ""}
+        <p class="small muted">同じ Google アカウントでログインした PC・スマホで、学習済みの遺産・苦手問題・今日のメニュー・模擬試験の記録が自動で同じになる。</p>
+        <div class="row"><button class="btn ghost" id="sync-now">今すぐ同期</button><button class="clear" id="logout">ログアウト</button></div>`;
+    } else {
+      body = `<p class="lede" style="margin-bottom:20px">Google アカウントでログインすると、PC・スマホの学習記録が自動で同期される。ログインすると、この端末の記録はクラウドの記録と合体する。</p>
+        <button class="btn google" id="login" ${S.status === "signing" ? "disabled" : ""}><span class="g">G</span>${S.status === "signing" ? "ログイン中…" : "Google でログイン"}</button>
+        <p class="small" style="color:var(--ng);margin-top:12px">${S.status === "error" ? esc(S.message) : ""}</p>`;
+    }
+    h(`${head("Account", "同期とアカウント")}${body}`);
+    if ($("#login")) $("#login").onclick = () => Sync.signIn();
+    if ($("#logout")) $("#logout").onclick = () => Sync.signOut();
+    if ($("#sync-now")) $("#sync-now").onclick = () => Sync.syncNow();
+  }
+  function refreshSync() {
+    const S = Sync.state;
+    document.getElementById("nav-account").hidden = !S.enabled;
+    document.getElementById("sync-dot").className = "sync-dot " + (S.user ? (S.status === "error" ? "err" : "on") : "");
+  }
+
   // ---------- 理論 ----------
   function viewTheory(id) { TheoryView.render(app, id); }
 
@@ -669,7 +701,7 @@
     $$("#nav a", document).forEach((x) => x.classList.toggle("active", x.dataset.route === (name === "site" ? "sites" : name || "")));
     window.scrollTo(0, 0);
     const views = { "": viewHome, sites: viewSites, site: viewSite, map: viewMap, theory: viewTheory, quiz: viewQuiz,
-      flash: viewFlash, review: viewReview, exam: viewExam };
+      flash: viewFlash, review: viewReview, exam: viewExam, account: viewAccount };
     if (name === "sites") viewSites(a, query);
     else (views[name] || viewHome)(a, b);
     refreshSide();
@@ -682,6 +714,16 @@
   }
   document.getElementById("ruby-toggle").onclick = () => { Store.setFurigana(Store.state.settings.furigana === false); applyFurigana(); };
   applyFurigana();
+
+  // 同期の状態が変わったら表示を更新。アカウント画面を開いていれば描き直す
+  Sync.onChange(() => { refreshSync(); if (location.hash.startsWith("#/account")) viewAccount(); });
+  refreshSync();
+  // 他の端末の記録を受け取ったとき。解答中の画面（問題・カード・試験）は描き直さない
+  window.addEventListener("store:remote", () => {
+    refreshSide(); applyFurigana();
+    const name = location.hash.replace(/^#\/?/, "").split(/[/?]/)[0];
+    if (["", "sites", "site", "review", "account"].includes(name) && !/\/(today)$/.test(location.hash)) route();
+  });
 
   window.addEventListener("hashchange", route);
   route();
